@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
 import os
+import argparse
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix
@@ -16,7 +17,6 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 
-CSV_PATH = "your_file.csv"  # <-- update this to your input file
 TARGET_COLUMN = "Fault_Type"
 SAVE_DIR = "outputs"
 RANDOM_STATE = 42
@@ -51,8 +51,12 @@ def plot_confusion_matrix(cm, labels, filename):
     plt.close()
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--csv', required=True, help="Path to input CSV file")
+    args = parser.parse_args()
+
     os.makedirs(SAVE_DIR, exist_ok=True)
-    X_train, X_test, y_train, y_test = load_and_prepare_data(CSV_PATH)
+    X_train, X_test, y_train, y_test = load_and_prepare_data(args.csv)
 
     models = {
         'Random Forest': RandomForestClassifier(random_state=RANDOM_STATE),

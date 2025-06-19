@@ -1,0 +1,97 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import joblib
+import os
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+
+# Import XGBoost and LightGBM
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
+
+# ----------- Configuration -----------
+CSV_PATH = "data/your_dataset.csv"  # <-- UPDATE THIS
+TARGET_COLUMN = "label"  # <-- UPDATE THIS to your target column
+SAVE_DIR = "outputs"
+RANDOM_STATE = 42
+# --------------------------------------
+
+def load_and_prepare_data(path):
+    df = pd.read_csv(path)
+    X = df.drop(columns=[TARGET_COLUMN])
+    y = df[TARGET_COLUMN]
+    
+    # Encode target if it's not numeric
+    if y.dtype == 'object' or y.dtype.name == 'category':
+        le = LabelEncoder()
+        y = le.fit_transform(y)
+
+    return train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE)
+
+def evaluate_model(name, model, X_test, y_test):
+    y_pred = model.predict(X_test)
+    return {
+        'Model': name,
+        'Accuracy (%)': round(accuracy_score(y_test, y_pred) * 100, 2),
+        'Precision': round(precision_score(y_test, y_pred, average='weighted'), 2),
+        'Recall': round(recall_score(y_test, y_pred, average='weighted'), 2),
+        'F1-Score': round(f1_score(y_test, y_pred, average='weighted'), 2),
+        'Confusion Matrix': confusion_matrix(y_test, y_pred)
+    }
+
+def plot_confusion_matrix(cm, labels, filename):
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=labels, yticklabels=labels)
+    plt.xlabel("Predicted")
+    plt.ylabel("Actual")
+    plt.title("Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig(filename)
+    plt.close()
+
+def main():
+    os.makedirs(SAVE_DIR, exist_ok=True)
+    X_train, X_test, y_train, y_test = load_and_prepare_data(CSV_PATH)
+
+    models = {
+        'Random Forest': RandomForestClassifier(random_state=RANDOM_STATE),
+        'XGBoost': XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', random_state=RANDOM_STATE),
+        'LightGBM': LGBMClassifier(random_state=RANDOM_STATE),
+        'SVM': SVC(probability=True, random_state=RANDOM_STATE),
+        'MLP': MLPClassifier(max_iter=300, random_state=RANDOM_STATE)
+    }
+
+    results = []
+    for name, model in models.items():
+        model.fit(X_train, y_train)
+        metrics = evaluate_model(name, model, X_test, y_test)
+        results.append(metrics)
+
+        # Save confusion matrix
+        plot_confusion_matrix(
+            metrics['Confusion Matrix'],
+            labels=np.unique(y_test),
+            filename=os.path.join(SAVE_DIR, f"{name.replace(' ', '_')}_confusion.png")
+        )
+
+        # Save model
+        joblib.dump(model, os.path.join(SAVE_DIR, f"{name.replace(' ', '_')}.pkl"))
+
+    # Save all scores
+    df_results = pd.DataFrame([{
+        k: v for k, v in m.items() if k != 'Confusion Matrix'
+    } for m in results])
+    
+    df_results.to_csv(os.path.join(SAVE_DIR, "model_performance.csv"), index=False)
+    print("✅ All tasks completed. Results saved in:", SAVE_DIR)
+
+if __name__ == "__main__":
+    main()

@@ -10,31 +10,24 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import LabelEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
-# Import XGBoost and LightGBM
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
 
-# ----------- Configuration -----------
-CSV_PATH = "data/your_dataset.csv"  # <-- UPDATE THIS
-TARGET_COLUMN = "label"  # <-- UPDATE THIS to your target column
+CSV_PATH = "your_file.csv"  # <-- update this to your input file
+TARGET_COLUMN = "Fault_Type"
 SAVE_DIR = "outputs"
 RANDOM_STATE = 42
-# --------------------------------------
 
 def load_and_prepare_data(path):
     df = pd.read_csv(path)
-    X = df.drop(columns=[TARGET_COLUMN])
+    X = df.drop(columns=[TARGET_COLUMN, 'Severity']) if 'Severity' in df.columns else df.drop(columns=[TARGET_COLUMN])
     y = df[TARGET_COLUMN]
-    
-    # Encode target if it's not numeric
-    if y.dtype == 'object' or y.dtype.name == 'category':
-        le = LabelEncoder()
-        y = le.fit_transform(y)
-
-    return train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    return train_test_split(X_scaled, y, test_size=0.2, stratify=y, random_state=RANDOM_STATE)
 
 def evaluate_model(name, model, X_test, y_test):
     y_pred = model.predict(X_test)
@@ -48,7 +41,7 @@ def evaluate_model(name, model, X_test, y_test):
     }
 
 def plot_confusion_matrix(cm, labels, filename):
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(6, 5))
     sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=labels, yticklabels=labels)
     plt.xlabel("Predicted")
     plt.ylabel("Actual")
@@ -66,7 +59,7 @@ def main():
         'XGBoost': XGBClassifier(use_label_encoder=False, eval_metric='mlogloss', random_state=RANDOM_STATE),
         'LightGBM': LGBMClassifier(random_state=RANDOM_STATE),
         'SVM': SVC(probability=True, random_state=RANDOM_STATE),
-        'MLP': MLPClassifier(max_iter=300, random_state=RANDOM_STATE)
+        'MLP': MLPClassifier(hidden_layer_sizes=(100, 50, 25), max_iter=300, random_state=RANDOM_STATE)
     }
 
     results = []
@@ -75,23 +68,20 @@ def main():
         metrics = evaluate_model(name, model, X_test, y_test)
         results.append(metrics)
 
-        # Save confusion matrix
         plot_confusion_matrix(
             metrics['Confusion Matrix'],
             labels=np.unique(y_test),
             filename=os.path.join(SAVE_DIR, f"{name.replace(' ', '_')}_confusion.png")
         )
 
-        # Save model
         joblib.dump(model, os.path.join(SAVE_DIR, f"{name.replace(' ', '_')}.pkl"))
 
-    # Save all scores
     df_results = pd.DataFrame([{
         k: v for k, v in m.items() if k != 'Confusion Matrix'
     } for m in results])
-    
+
     df_results.to_csv(os.path.join(SAVE_DIR, "model_performance.csv"), index=False)
-    print("✅ All tasks completed. Results saved in:", SAVE_DIR)
+    print("\n✅ All tasks completed. Results saved in:", SAVE_DIR)
 
 if __name__ == "__main__":
     main()

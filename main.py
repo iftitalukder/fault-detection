@@ -44,15 +44,22 @@ def train_evaluate_model(model, X_train_full, X_test_full, y_train, y_test, X_tr
         X_test_data = X_test_mlp
 
     model.fit(X_train_data, y_train)
-    y_pred = model.predict(X_test_data)
     training_time = time.time() - start_time
+
+    # Measure prediction latency
+    start_pred = time.time()
+    y_pred = model.predict(X_test_data)
+    prediction_time = time.time() - start_pred
+    latency_per_sample_ms = (prediction_time / X_test_data.shape[0]) * 1000  # Convert to ms per sample
+
     metrics = {
         'Model': model_name,
         'Accuracy (%)': accuracy_score(y_test, y_pred) * 100,
         'Precision': precision_score(y_test, y_pred, average='weighted', zero_division=0),
         'Recall': recall_score(y_test, y_pred, average='weighted', zero_division=0),
         'F1-Score': f1_score(y_test, y_pred, average='weighted', zero_division=0),
-        'Training Time (s)': training_time
+        'Training Time (s)': training_time,
+        'Prediction Latency per Sample (ms)': latency_per_sample_ms
     }
     return metrics
 

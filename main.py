@@ -24,10 +24,9 @@ def preprocess_data(X, y):
     X_scaled = scaler.fit_transform(X)
     # Standard 80-20 split
     X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
-    # Subsample features: 3 for SVM, 2 for MLP
-    X_train_svm = X_train[:, :3]  # First 3 features (e.g., X, Y, Z)
+    X_train_svm = X_train[:, :3]  
     X_test_svm = X_test[:, :3]
-    X_train_mlp = X_train[:, :2]  # First 2 features (e.g., X, Y)
+    X_train_mlp = X_train[:, :2]  
     X_test_mlp = X_test[:, :2]
     return X_train, X_test, X_train_svm, X_test_svm, X_train_mlp, X_test_mlp, y_train, y_test
 

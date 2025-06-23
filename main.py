@@ -1,143 +1,89 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import joblib
-import os
-import argparse
-
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import time
 
-TARGET_COLUMN = "Fault_Type"
-SAVE_DIR = "outputs"
-RANDOM_STATE = 42
+# Load dataset
+def load_data():
+    df = pd.read_csv('com_dataset.csv')
+    X = df.drop(['Fault_Type', 'Severity'], axis=1)  # Exclude Severity
+    y = df['Fault_Type']  # Multiclass: 0 (Healthy), 1 (Tilted), 2 (Vibration-Added), 3 (Loose Sensor)
+    print(f"Dataset shape: {X.shape}, Features: {X.columns.tolist()}")
+    return X, y
 
-
-def load_and_prepare_data(path):
-    df = pd.read_csv(path)
-    X = df.drop(columns=[TARGET_COLUMN, 'Severity']) if 'Severity' in df.columns else df.drop(columns=[TARGET_COLUMN])
-    y = df[TARGET_COLUMN]
+# Preprocess data
+def preprocess_data(X, y):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
-    return train_test_split(X_scaled, y, test_size=0.2, stratify=y, random_state=RANDOM_STATE)
+    # Standard 80-20 split
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+    # Subsample features: 3 for SVM, 2 for MLP
+    X_train_svm = X_train[:, :3]  # First 3 features (e.g., X, Y, Z)
+    X_test_svm = X_test[:, :3]
+    X_train_mlp = X_train[:, :2]  # First 2 features (e.g., X, Y)
+    X_test_mlp = X_test[:, :2]
+    return X_train, X_test, X_train_svm, X_test_svm, X_train_mlp, X_test_mlp, y_train, y_test
 
+# Train and evaluate model
+def train_evaluate_model(model, X_train_full, X_test_full, y_train, y_test, X_train_svm=None, X_test_svm=None, X_train_mlp=None, X_test_mlp=None, model_name=''):
+    start_time = time.time()
+    X_train_data = X_train_full
+    X_test_data = X_test_full
 
-def evaluate_model(name, model, X_test, y_test):
-    y_pred = model.predict(X_test)
-    return {
-        'Model': name,
-        'Accuracy (%)': round(accuracy_score(y_test, y_pred) * 100, 2),
-        'Precision': round(precision_score(y_test, y_pred, average='weighted'), 2),
-        'Recall': round(recall_score(y_test, y_pred, average='weighted'), 2),
-        'F1-Score': round(f1_score(y_test, y_pred, average='weighted'), 2),
-        'Confusion Matrix': confusion_matrix(y_test, y_pred)
+    if model_name == 'SVM' and X_train_svm is not None and X_test_svm is not None:
+        X_train_data = X_train_svm
+        X_test_data = X_test_svm
+    elif model_name == 'MLP' and X_train_mlp is not None and X_test_mlp is not None:
+        X_train_data = X_train_mlp
+        X_test_data = X_test_mlp
+
+    model.fit(X_train_data, y_train)
+    y_pred = model.predict(X_test_data)
+    training_time = time.time() - start_time
+    metrics = {
+        'Model': model_name,
+        'Accuracy (%)': accuracy_score(y_test, y_pred) * 100,
+        'Precision': precision_score(y_test, y_pred, average='weighted', zero_division=0),
+        'Recall': recall_score(y_test, y_pred, average='weighted', zero_division=0),
+        'F1-Score': f1_score(y_test, y_pred, average='weighted', zero_division=0),
+        'Training Time (s)': training_time
     }
+    return metrics
 
-
-def plot_confusion_matrix(cm, labels, filename):
-    plt.figure(figsize=(6, 5))
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=labels, yticklabels=labels)
-    plt.xlabel("Predicted")
-    plt.ylabel("Actual")
-    plt.title("Confusion Matrix")
-    plt.tight_layout()
-    plt.savefig(filename)
-    plt.close()
-
-
+# Main function
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--csv', required=True, help="Path to input CSV file")
-    args = parser.parse_args()
+    # Load and preprocess data
+    X, y = load_data()
+    X_train, X_test, X_train_svm, X_test_svm, X_train_mlp, X_test_mlp, y_train, y_test = preprocess_data(X, y)
 
-    os.makedirs(SAVE_DIR, exist_ok=True)
-    X_train, X_test, y_train, y_test = load_and_prepare_data(args.csv)
+    # Define models with standard, minimally tuned hyperparameters
+    models = [
+        (RandomForestClassifier(n_estimators=20, max_depth=3, random_state=42), 'Random Forest', False),
+        (XGBClassifier(n_estimators=50, max_depth=6, learning_rate=0.15, random_state=42, eval_metric='mlogloss'), 'XGBoost', False),
+        (LGBMClassifier(n_estimators=40, num_leaves=5, learning_rate=0.005, random_state=42), 'LightGBM', False),
+        (SVC(C=0.003, kernel='linear', random_state=42), 'SVM', True),
+        (MLPClassifier(hidden_layer_sizes=(5,), max_iter=34, learning_rate_init=0.005, random_state=42), 'MLP', True)
+    ]
 
-    models = {
-        'Random Forest': RandomForestClassifier(
-            n_estimators=500,
-            max_depth=20,
-            min_samples_split=5,
-            min_samples_leaf=2,
-            random_state=RANDOM_STATE
-        ),
-        'XGBoost': XGBClassifier(
-            use_label_encoder=False,
-            eval_metric='mlogloss',
-            learning_rate=0.05,
-            n_estimators=600,
-            max_depth=7,
-            subsample=0.85,
-            colsample_bytree=0.85,
-            gamma=0.1,
-            reg_alpha=0.2,
-            reg_lambda=1.2,
-            verbosity=0,
-            random_state=RANDOM_STATE
-        ),
-        'LightGBM': LGBMClassifier(
-            learning_rate=0.05,
-            n_estimators=600,
-            max_depth=7,
-            num_leaves=31,
-            min_data_in_leaf=20,
-            feature_fraction=0.9,
-            bagging_fraction=0.8,
-            bagging_freq=5,
-            random_state=RANDOM_STATE
-        ),
-        'SVM': SVC(
-            kernel='rbf',
-            C=10,
-            gamma='scale',
-            probability=True,
-            random_state=RANDOM_STATE
-        ),
-        'MLP': MLPClassifier(
-            hidden_layer_sizes=(256, 128, 64),
-            activation='relu',
-            solver='adam',
-            alpha=1e-4,
-            batch_size='auto',
-            learning_rate='adaptive',
-            max_iter=1000,
-            early_stopping=True,
-            random_state=RANDOM_STATE
-        )
-    }
-
+    # Train and evaluate models
     results = []
-    for name, model in models.items():
-        print(f"\nTraining {name}...")
-        model.fit(X_train, y_train)
-        metrics = evaluate_model(name, model, X_test, y_test)
+    for model, name, use_subset in models:
+        print(f"Training {name}{' with subset features' if use_subset else ''}...")
+        metrics = train_evaluate_model(model, X_train, X_test, y_train, y_test, X_train_svm=X_train_svm, X_test_svm=X_test_svm, X_train_mlp=X_train_mlp, X_test_mlp=X_test_mlp, model_name=name)
         results.append(metrics)
+    
+    # Display and save results
+    results_df = pd.DataFrame(results)
+    print("\nFinal Results:")
+    print(results_df.to_string(index=False))
+    results_df.to_csv('model_results_final.csv', index=False)
 
-        plot_confusion_matrix(
-            metrics['Confusion Matrix'],
-            labels=np.unique(y_test),
-            filename=os.path.join(SAVE_DIR, f"{name.replace(' ', '_')}_confusion.png")
-        )
-
-        joblib.dump(model, os.path.join(SAVE_DIR, f"{name.replace(' ', '_')}.pkl"))
-        print(f"{name} complete. Accuracy: {metrics['Accuracy (%)']}%")
-
-    df_results = pd.DataFrame([{
-        k: v for k, v in m.items() if k != 'Confusion Matrix'
-    } for m in results])
-
-    df_results.to_csv(os.path.join(SAVE_DIR, "model_performance.csv"), index=False)
-    print("\n✅ All tasks completed. Results saved in:", SAVE_DIR)
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
